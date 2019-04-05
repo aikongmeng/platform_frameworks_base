@@ -675,7 +675,7 @@ public final class LoadedApk {
 
         // Shared libraries get a null parent: this has the side effect of having canonicalized
         // shared libraries using ApplicationLoaders cache, which is the behavior we want.
-        return ApplicationLoaders.getDefault().getClassLoaderWithSharedLibraries(jars,
+        return ApplicationLoaders.getDefault().getSharedLibraryClassLoaderWithSharedLibraries(jars,
                     mApplicationInfo.targetSdkVersion, isBundledApp, librarySearchPath,
                     libraryPermittedPath, /* parent */ null,
                     /* classLoaderName */ null, sharedLibraries);
@@ -757,6 +757,16 @@ public final class LoadedApk {
         final boolean treatVendorApkAsUnbundled = !defaultSearchPaths.contains("/vendor/lib");
         if (mApplicationInfo.getCodePath() != null
                 && mApplicationInfo.isVendor() && treatVendorApkAsUnbundled) {
+            isBundledApp = false;
+        }
+
+        // Similar to vendor apks, we should add /product/lib for apks from product partition
+        // and not having /product/lib in the default search path
+        final boolean treatProductApkAsUnbundled = !defaultSearchPaths.contains("/product/lib");
+        if (mApplicationInfo.getCodePath() != null
+                && mApplicationInfo.isProduct() && treatProductApkAsUnbundled
+                // TODO(b/128557860): Change target SDK version when version code R is available.
+                && getTargetSdkVersion() == Build.VERSION_CODES.CUR_DEVELOPMENT) {
             isBundledApp = false;
         }
 

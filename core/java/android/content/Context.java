@@ -1711,7 +1711,8 @@ public abstract class Context {
      */
     @RequiresPermission(android.Manifest.permission.INTERACT_ACROSS_USERS_FULL)
     @SystemApi
-    public void startActivityAsUser(@RequiresPermission Intent intent, UserHandle user) {
+    public void startActivityAsUser(@RequiresPermission @NonNull Intent intent,
+            @NonNull UserHandle user) {
         throw new RuntimeException("Not implemented. Must override in a subclass.");
     }
 
@@ -3016,6 +3017,7 @@ public abstract class Context {
             CONNECTIVITY_SERVICE,
             //@hide: IP_MEMORY_STORE_SERVICE,
             IPSEC_SERVICE,
+            TEST_NETWORK_SERVICE,
             //@hide: UPDATE_LOCK_SERVICE,
             //@hide: NETWORKMANAGEMENT_SERVICE,
             NETWORK_STATS_SERVICE,
@@ -3522,20 +3524,21 @@ public abstract class Context {
 
     /**
      * Use with {@link #getSystemService(String)} to retrieve a
-     * {@link android.net.IpMemoryStore} to store and read information about
-     * known networks.
-     * @hide
-     */
-    public static final String IP_MEMORY_STORE_SERVICE = "ipmemorystore";
-
-    /**
-     * Use with {@link #getSystemService(String)} to retrieve a
      * {@link android.net.IpSecManager} for encrypting Sockets or Networks with
      * IPSec.
      *
      * @see #getSystemService(String)
      */
     public static final String IPSEC_SERVICE = "ipsec";
+
+    /**
+     * Use with {@link #getSystemService(String)} to retrieve a {@link
+     * android.net.TestNetworkManager} for building TUNs and limited-use Networks
+     *
+     * @see #getSystemService(String)
+     * @hide
+     */
+    @TestApi public static final String TEST_NETWORK_SERVICE = "test_network";
 
     /**
      * Use with {@link #getSystemService(String)} to retrieve a {@link

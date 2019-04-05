@@ -77,6 +77,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 
 /**
  * Since phone process can be restarted, this class provides a centralized place
@@ -237,6 +238,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
     private boolean mCarrierNetworkChangeState = false;
 
     private PhoneCapability mPhoneCapability = null;
+
+    private int mActiveDataSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 
     @TelephonyManager.RadioPowerState
     private int mRadioPowerState = TelephonyManager.RADIO_POWER_UNAVAILABLE;
@@ -818,9 +821,13 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                             remove(r.binder);
                         }
                     }
-                    if ((events & PhoneStateListener.LISTEN_PREFERRED_DATA_SUBID_CHANGE) != 0) {
+                    if ((events & PhoneStateListener
+                            .LISTEN_ACTIVE_DATA_SUBSCRIPTION_ID_CHANGE) != 0
+                            && TelephonyPermissions.checkReadPhoneStateOnAnyActiveSub(
+                                    r.context, r.callerPid, r.callerUid, r.callingPackage,
+                            "listen_active_data_subid_change")) {
                         try {
-                            r.callback.onPreferredDataSubIdChanged(mPreferredDataSubId);
+                            r.callback.onActiveDataSubIdChanged(mActiveDataSubId);
                         } catch (RemoteException ex) {
                             remove(r.binder);
                         }
@@ -1549,6 +1556,13 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                 log("notifyPreciseCallState: mCallQuality is null, skipping call attributes");
                 notifyCallAttributes = false;
             } else {
+                // If the precise call state is no longer active, reset the call network type and
+                // call quality.
+                if (mPreciseCallState.getForegroundCallState()
+                        != PreciseCallState.PRECISE_CALL_STATE_ACTIVE) {
+                    mCallNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+                    mCallQuality = new CallQuality();
+                }
                 mCallAttributes = new CallAttributes(mPreciseCallState, mCallNetworkType,
                         mCallQuality);
             }
@@ -1733,23 +1747,34 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         }
     }
 
-    public void notifyPreferredDataSubIdChanged(int preferredSubId) {
-        if (!checkNotifyPermission("notifyPreferredDataSubIdChanged()")) {
+    public void notifyActiveDataSubIdChanged(int activeDataSubId) {
+        if (!checkNotifyPermission("notifyActiveDataSubIdChanged()")) {
             return;
         }
 
         if (VDBG) {
-            log("notifyPreferredDataSubIdChanged: preferredSubId=" + preferredSubId);
+            log("notifyActiveDataSubIdChanged: activeDataSubId=" + activeDataSubId);
         }
 
+        // Create a copy to prevent the IPC call while checking carrier privilege under the lock.
+        List<Record> copiedRecords;
         synchronized (mRecords) {
-            mPreferredDataSubId = preferredSubId;
+            copiedRecords = new ArrayList<>(mRecords);
+        }
+        mActiveDataSubId = activeDataSubId;
 
-            for (Record r : mRecords) {
-                if (r.matchPhoneStateListenerEvent(
-                        PhoneStateListener.LISTEN_PREFERRED_DATA_SUBID_CHANGE)) {
+        // Filter the record that does not listen to this change or does not have the permission.
+        copiedRecords = copiedRecords.stream().filter(r -> r.matchPhoneStateListenerEvent(
+                PhoneStateListener.LISTEN_ACTIVE_DATA_SUBSCRIPTION_ID_CHANGE)
+                && TelephonyPermissions.checkReadPhoneStateOnAnyActiveSub(
+                        mContext, r.callerPid, r.callerUid, r.callingPackage,
+                "notifyActiveDataSubIdChanged")).collect(Collectors.toCollection(ArrayList::new));
+
+        synchronized (mRecords) {
+            for (Record r : copiedRecords) {
+                if (mRecords.contains(r)) {
                     try {
-                        r.callback.onPreferredDataSubIdChanged(preferredSubId);
+                        r.callback.onActiveDataSubIdChanged(activeDataSubId);
                     } catch (RemoteException ex) {
                         mRemoveList.add(r.binder);
                     }
@@ -1795,7 +1820,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         synchronized (mRecords) {
             TelephonyManager tm = (TelephonyManager) mContext.getSystemService(
                     Context.TELEPHONY_SERVICE);
-            mEmergencyNumberList = tm.getCurrentEmergencyNumberList();
+            mEmergencyNumberList = tm.getEmergencyNumberList();
 
             for (Record r : mRecords) {
                 if (r.matchPhoneStateListenerEvent(
@@ -1872,7 +1897,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                 pw.println("mDataConnectionState=" + mDataConnectionState[i]);
                 pw.println("mCellLocation=" + mCellLocation[i]);
                 pw.println("mCellInfo=" + mCellInfo.get(i));
-                pw.println("mImsCallDisconnectCause=" + mImsReasonInfo.get(i).toString());
+                pw.println("mImsCallDisconnectCause=" + mImsReasonInfo.get(i));
                 pw.decreaseIndent();
             }
             pw.println("mCallNetworkType=" + mCallNetworkType);
@@ -1886,7 +1911,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             pw.println("mBackgroundCallState=" + mBackgroundCallState);
             pw.println("mSrvccState=" + mSrvccState);
             pw.println("mPhoneCapability=" + mPhoneCapability);
-            pw.println("mPreferredDataSubId=" + mPreferredDataSubId);
+            pw.println("mActiveDataSubId=" + mActiveDataSubId);
             pw.println("mRadioPowerState=" + mRadioPowerState);
             pw.println("mEmergencyNumberList=" + mEmergencyNumberList);
             pw.println("mCallQuality=" + mCallQuality);
@@ -2156,14 +2181,6 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         if ((events & PhoneStateListener.LISTEN_SRVCC_STATE_CHANGED) != 0) {
             mContext.enforceCallingOrSelfPermission(
                     android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE, null);
-        }
-
-        if ((events & PhoneStateListener.LISTEN_PREFERRED_DATA_SUBID_CHANGE) != 0) {
-            // It can have either READ_PHONE_STATE or READ_PRIVILEGED_PHONE_STATE.
-            TelephonyPermissions.checkReadPhoneState(mContext,
-                    SubscriptionManager.INVALID_SUBSCRIPTION_ID, Binder.getCallingPid(),
-                    Binder.getCallingUid(), callingPackage, "listen to "
-                            + "LISTEN_PREFERRED_DATA_SUBID_CHANGE");
         }
 
         if ((events & PhoneStateListener.LISTEN_CALL_DISCONNECT_CAUSES) != 0) {

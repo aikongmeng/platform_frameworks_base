@@ -32,6 +32,7 @@ import "frameworks/base/core/proto/android/net/networkcapabilities.proto";
 import "frameworks/base/core/proto/android/os/enums.proto";
 import "frameworks/base/core/proto/android/server/connectivity/data_stall_event.proto";
 import "frameworks/base/core/proto/android/server/enums.proto";
+import "frameworks/base/core/proto/android/stats/connectivity/network_stack.proto";
 import "frameworks/base/core/proto/android/stats/launcher/launcher.proto";
 import "frameworks/base/core/proto/android/telecomm/enums.proto";
 import "frameworks/base/core/proto/android/telephony/enums.proto";
@@ -164,6 +165,7 @@ message Atom {
         BluetoothSmpPairingEventReported bluetooth_smp_pairing_event_reported = 167;
         ProcessStartTime process_start_time = 169;
         BluetoothSocketConnectionStateChanged bluetooth_socket_connection_state_changed = 171;
+        NetworkStackReported network_stack_reported = 182;
     }
 
     // Pulled events will start at field 10000.
@@ -1714,6 +1716,9 @@ message BluetoothClassicPairingEventReported {
     // HCI reason code associated with this event
     // Default: STATUS_UNKNOWN
     optional android.bluetooth.hci.StatusEnum reason_code = 6;
+    // A status value related to this specific event
+    // Default: 0
+    optional int64 event_value = 7;
 }
 
 /**
@@ -2410,6 +2415,9 @@ message LmkKillOccurred {
 
     // The elapsed real time of start of the process.
     optional int64 process_start_time_nanos = 9;
+
+    // Min oom adj score considered by lmkd.
+    optional int32 min_oom_score = 10;
 }
 
 /*
@@ -3044,5 +3052,18 @@ message ProcessStartTime {
     // hostingNameStr field in ProcessRecord. The component class name that runs
     // in this process.
     optional string hosting_name = 9;
+}
+
+/**
+ * Push network stack events.
+ *
+ * Log from:
+ *     frameworks/base/packages/NetworkStack/
+ */
+message NetworkStackReported {
+    // The id that indicates the event reported from NetworkStack.
+    optional int32 event_id = 1;
+    // The data for the reported events.
+    optional android.stats.connectivity.NetworkStackEventData network_stack_event = 2 [(log_mode) = MODE_BYTES];
 }
 

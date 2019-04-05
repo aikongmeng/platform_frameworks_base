@@ -168,6 +168,7 @@ import android.content.pm.InstantAppRequest;
 import android.content.pm.InstantAppResolveInfo;
 import android.content.pm.InstrumentationInfo;
 import android.content.pm.IntentFilterVerificationInfo;
+import android.content.pm.PackageBackwardCompatibility;
 import android.content.pm.KeySet;
 import android.content.pm.PackageCleanItem;
 import android.content.pm.PackageInfo;
@@ -2156,7 +2157,7 @@ public class PackageManagerService extends IPackageManager.Stub
             }
 
             if (allNewUsers && !update) {
-                notifyPackageAdded(packageName);
+                notifyPackageAdded(packageName, res.uid);
             }
 
             // Log current value of "unknown sources" setting
@@ -9462,7 +9463,7 @@ public class PackageManagerService extends IPackageManager.Stub
                             mDexManager.getPackageUseInfoOrDefault(depPackage.packageName),
                             libraryOptions);
                 } else {
-                    pdo.performDexOpt(info, instructionSets, libraryOptions);
+                    // TODO(ngeoffray): Support dexopting system shared libraries.
                 }
             }
         }
@@ -11043,6 +11044,8 @@ public class PackageManagerService extends IPackageManager.Stub
             pkg.mRealPackage = null;
             pkg.mAdoptPermissions = null;
         }
+
+        PackageBackwardCompatibility.modifySharedLibraries(pkg);
     }
 
     private static @NonNull <T> T assertNotNull(@Nullable T object, String message)
@@ -13725,7 +13728,7 @@ public class PackageManagerService extends IPackageManager.Stub
     }
 
     @Override
-    public void notifyPackageAdded(String packageName) {
+    public void notifyPackageAdded(String packageName, int uid) {
         final PackageListObserver[] observers;
         synchronized (mPackages) {
             if (mPackageListObservers.size() == 0) {
@@ -13736,12 +13739,12 @@ public class PackageManagerService extends IPackageManager.Stub
             observers = mPackageListObservers.toArray(observerArray);
         }
         for (int i = observers.length - 1; i >= 0; --i) {
-            observers[i].onPackageAdded(packageName);
+            observers[i].onPackageAdded(packageName, uid);
         }
     }
 
     @Override
-    public void notifyPackageRemoved(String packageName) {
+    public void notifyPackageRemoved(String packageName, int uid) {
         final PackageListObserver[] observers;
         synchronized (mPackages) {
             if (mPackageListObservers.size() == 0) {
@@ -13752,7 +13755,7 @@ public class PackageManagerService extends IPackageManager.Stub
             observers = mPackageListObservers.toArray(observerArray);
         }
         for (int i = observers.length - 1; i >= 0; --i) {
-            observers[i].onPackageRemoved(packageName);
+            observers[i].onPackageRemoved(packageName, uid);
         }
     }
 
@@ -18559,7 +18562,8 @@ public class PackageManagerService extends IPackageManager.Stub
                 return;
             }
             Bundle extras = new Bundle(2);
-            extras.putInt(Intent.EXTRA_UID, removedAppId >= 0  ? removedAppId : uid);
+            final int removedUid = removedAppId >= 0  ? removedAppId : uid;
+            extras.putInt(Intent.EXTRA_UID, removedUid);
             extras.putBoolean(Intent.EXTRA_DATA_REMOVED, dataRemoved);
             extras.putBoolean(Intent.EXTRA_DONT_KILL_APP, !killApp);
             if (isUpdate || isRemovedPackageSystemUpdate) {
@@ -18580,7 +18584,7 @@ public class PackageManagerService extends IPackageManager.Stub
                         removedPackage, extras,
                         Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND,
                         null, null, broadcastUsers, instantUserIds);
-                    packageSender.notifyPackageRemoved(removedPackage);
+                    packageSender.notifyPackageRemoved(removedPackage, removedUid);
                 }
             }
             if (removedAppId >= 0) {
@@ -24943,6 +24947,6 @@ interface PackageSender {
         final IIntentReceiver finishedReceiver, final int[] userIds, int[] instantUserIds);
     void sendPackageAddedForNewUsers(String packageName, boolean sendBootCompleted,
         boolean includeStopped, int appId, int[] userIds, int[] instantUserIds);
-    void notifyPackageAdded(String packageName);
-    void notifyPackageRemoved(String packageName);
+    void notifyPackageAdded(String packageName, int uid);
+    void notifyPackageRemoved(String packageName, int uid);
 }

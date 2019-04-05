@@ -98,7 +98,6 @@ import com.android.server.media.MediaUpdateService;
 import com.android.server.media.projection.MediaProjectionManagerService;
 import com.android.server.net.NetworkPolicyManagerService;
 import com.android.server.net.NetworkStatsService;
-import com.android.server.net.ipmemorystore.IpMemoryStoreService;
 import com.android.server.net.watchlist.NetworkWatchlistService;
 import com.android.server.notification.NotificationManagerService;
 import com.android.server.oemlock.OemLockService;
@@ -1118,6 +1117,14 @@ public final class SystemServer {
             mSystemServiceManager.startService(ClipboardService.class);
             traceEnd();
 
+            traceBeginAndSlog("InitNetworkStackClient");
+            try {
+                NetworkStackClient.getInstance().init();
+            } catch (Throwable e) {
+                reportWtf("initializing NetworkStackClient", e);
+            }
+            traceEnd();
+
             traceBeginAndSlog("StartNetworkManagementService");
             try {
                 networkManagement = NetworkManagementService.create(context);
@@ -1127,14 +1134,6 @@ public final class SystemServer {
             }
             traceEnd();
 
-            traceBeginAndSlog("StartIpMemoryStoreService");
-            try {
-                ServiceManager.addService(Context.IP_MEMORY_STORE_SERVICE,
-                        new IpMemoryStoreService(context));
-            } catch (Throwable e) {
-                reportWtf("starting IP Memory Store Service", e);
-            }
-            traceEnd();
 
             traceBeginAndSlog("StartIpSecService");
             try {
@@ -1238,14 +1237,6 @@ public final class SystemServer {
                 networkPolicy.bindConnectivityManager(connectivity);
             } catch (Throwable e) {
                 reportWtf("starting Connectivity Service", e);
-            }
-            traceEnd();
-
-            traceBeginAndSlog("StartNetworkStack");
-            try {
-                NetworkStackClient.getInstance().start(context);
-            } catch (Throwable e) {
-                reportWtf("starting Network Stack", e);
             }
             traceEnd();
 
@@ -1682,19 +1673,6 @@ public final class SystemServer {
         mSystemServiceManager.startService(StatsCompanionService.Lifecycle.class);
         traceEnd();
 
-        if (safeMode) {
-            traceBeginAndSlog("EnterSafeModeAndDisableJitCompilation");
-            mActivityManagerService.enterSafeMode();
-            // Disable the JIT for the system_server process
-            VMRuntime.getRuntime().disableJitCompilation();
-            traceEnd();
-        } else {
-            // Enable the JIT for the system_server process
-            traceBeginAndSlog("StartJitCompilation");
-            VMRuntime.getRuntime().startJitCompilation();
-            traceEnd();
-        }
-
         // MMS service broker
         traceBeginAndSlog("StartMmsService");
         mmsService = mSystemServiceManager.startService(MmsServiceBroker.class);
@@ -1942,6 +1920,19 @@ public final class SystemServer {
             }
             mSystemServiceManager.startBootPhase(
                     SystemService.PHASE_THIRD_PARTY_APPS_CAN_START);
+            traceEnd();
+
+            traceBeginAndSlog("StartNetworkStack");
+            try {
+                // Note : the network stack is creating on-demand objects that need to send
+                // broadcasts, which means it currently depends on being started after
+                // ActivityManagerService.mSystemReady and ActivityManagerService.mProcessesReady
+                // are set to true. Be careful if moving this to a different place in the
+                // startup sequence.
+                NetworkStackClient.getInstance().start(context);
+            } catch (Throwable e) {
+                reportWtf("starting Network Stack", e);
+            }
             traceEnd();
 
             traceBeginAndSlog("MakeLocationServiceReady");

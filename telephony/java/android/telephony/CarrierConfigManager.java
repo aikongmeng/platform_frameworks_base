@@ -31,6 +31,7 @@ import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.service.carrier.CarrierService;
+import android.telecom.TelecomManager;
 import android.telephony.ims.ImsReasonInfo;
 
 import com.android.internal.telephony.ICarrierConfigLoader;
@@ -71,10 +72,10 @@ public class CarrierConfigManager {
      * one is available for the slot index. An optional int extra
      * {@link TelephonyManager#EXTRA_CARRIER_ID} is included to indicate the carrier id for the
      * changed carrier configuration. An optional int extra
-     * {@link TelephonyManager#EXTRA_PRECISE_CARRIER_ID} is included to indicate the precise
+     * {@link TelephonyManager#EXTRA_SPECIFIC_CARRIER_ID} is included to indicate the precise
      * carrier id for the changed carrier configuration.
      * @see TelephonyManager#getSimCarrierId()
-     * @see TelephonyManager#getSimPreciseCarrierId()
+     * @see TelephonyManager#getSimSpecificCarrierId()
      */
     public static final String
             ACTION_CARRIER_CONFIG_CHANGED = "android.telephony.action.CARRIER_CONFIG_CHANGED";
@@ -1534,6 +1535,21 @@ public class CarrierConfigManager {
             "allow_non_emergency_calls_in_ecm_bool";
 
     /**
+     * Time that the telephony framework stays in "emergency SMS mode" after an emergency SMS is
+     * sent to the network. This is used by carriers to configure the time
+     * {@link TelephonyManager#isInEmergencySmsMode()} will be true after an emergency SMS is sent.
+     * This is used by GNSS to override user location permissions so that the carrier network can
+     * get the user's location for emergency services.
+     *
+     * The default is 0, which means that this feature is disabled. The maximum value for this timer
+     * is 300000 mS (5 minutes).
+     *
+     * @hide
+     */
+    public static final String KEY_EMERGENCY_SMS_MODE_TIMER_MS_INT =
+            "emergency_sms_mode_timer_ms_int";
+
+    /**
      * Flag indicating whether to allow carrier video calls to emergency numbers.
      * When {@code true}, video calls to emergency numbers will be allowed.  When {@code false},
      * video calls to emergency numbers will be initiated as audio-only calls instead.
@@ -1812,15 +1828,38 @@ public class CarrierConfigManager {
 
     /**
      * Determine whether user can change Wi-Fi Calling preference in roaming.
-     * {@code false} - roaming preference {@link KEY_CARRIER_DEFAULT_WFC_IMS_ROAMING_MODE_INT} is
-     *                 the same as home preference {@link KEY_CARRIER_DEFAULT_WFC_IMS_MODE_INT}
-     *                 and cannot be changed.
-     * {@code true}  - roaming preference can be changed by user independently.
-     *
+     * {@code false} - roaming preference cannot be changed by user independently. If
+     *                 {@link #KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL} is false,
+     *                 {@link #KEY_CARRIER_DEFAULT_WFC_IMS_ROAMING_MODE_INT} is used as the default
+     *                 value. If {@link #KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL} is
+     *                 true, roaming preference is the same as home preference and
+     *                 {@link #KEY_CARRIER_DEFAULT_WFC_IMS_MODE_INT} is used as the default value.
+     * {@code true}  - roaming preference can be changed by user independently if
+     *                 {@link #KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL} is false. If
+     *                 {@link #KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL} is true, this
+     *                 configuration is ignored and roaming preference cannot be changed.
      * @hide
      */
     public static final String KEY_EDITABLE_WFC_ROAMING_MODE_BOOL =
             "editable_wfc_roaming_mode_bool";
+
+    /**
+     * Flag specifying wether to show blocking pay phone option in blocked numbers screen. Only show
+     * the option if payphone call presentation represents in the carrier's region.
+     * @hide
+     */
+    public static final java.lang.String KEY_SHOW_BLOCKING_PAY_PHONE_OPTION_BOOL =
+            "show_blocking_pay_phone_option_bool";
+
+    /**
+     * Flag specifying whether the carrier will use the WFC home network mode in roaming network.
+     * {@code false} - roaming preference can be selected separately from the home preference.
+     * {@code true}  - roaming preference is the same as home preference and
+     *                 {@link #KEY_CARRIER_DEFAULT_WFC_IMS_MODE_INT} is used as the default value.
+     * @hide
+     */
+    public static final String KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL =
+            "use_wfc_home_network_mode_in_roaming_network_bool";
 
     /**
      * Determine whether current lpp_mode used for E-911 needs to be kept persistently.
@@ -2108,6 +2147,18 @@ public class CarrierConfigManager {
      * Flag indicating whether the carrier supports RTT over IMS.
      */
     public static final String KEY_RTT_SUPPORTED_BOOL = "rtt_supported_bool";
+
+    /**
+     * Boolean flag indicating whether the carrier supports TTY.
+     * <p>
+     * Note that {@link #KEY_CARRIER_VOLTE_TTY_SUPPORTED_BOOL} controls availability of TTY over
+     * VoLTE; if {@link #KEY_TTY_SUPPORTED_BOOL} is disabled, then
+     * {@link #KEY_CARRIER_VOLTE_TTY_SUPPORTED_BOOL} is also implicitly disabled.
+     * <p>
+     * {@link TelecomManager#isTtySupported()} should be used to determine if a device supports TTY,
+     * and this carrier config key should be used to see if the current carrier supports it.
+     */
+    public static final String KEY_TTY_SUPPORTED_BOOL = "tty_supported_bool";
 
     /**
      * Indicates if the carrier supports auto-upgrading a call to RTT when receiving a call from a
@@ -2427,6 +2478,85 @@ public class CarrierConfigManager {
     public static final String KEY_OPPORTUNISTIC_NETWORK_DATA_SWITCH_HYSTERESIS_TIME_LONG =
             "opportunistic_network_data_switch_hysteresis_time_long";
 
+    /**
+     * Indicates zero or more emergency number prefix(es), because some carrier requires
+     * if users dial an emergency number address with a specific prefix, the combination of the
+     * prefix and the address is also a valid emergency number to dial. For example, an emergency
+     * number prefix is 318, and the emergency number is 911. Both 318911 and 911 can be dialed by
+     * users for emergency call. An empty array of string indicates that current carrier does not
+     * have this requirement.
+     */
+    public static final String KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY =
+            "emergency_number_prefix_string_array";
+
+    /**
+     * Indicates when a carrier has a primary subscription and an opportunistic subscription active,
+     * and when Internet data is switched to opportunistic network, whether to still show
+     * signal bar of primary network. By default it will be false, meaning whenever data
+     * is going over opportunistic network, signal bar will reflect signal strength and rat
+     * icon of that network.
+     *
+     * @hide
+     */
+    public static final String KEY_ALWAYS_SHOW_PRIMARY_SIGNAL_BAR_IN_OPPORTUNISTIC_NETWORK_BOOLEAN =
+            "always_show_primary_signal_bar_in_opportunistic_network_boolean";
+
+    /**
+     * Determines whether the carrier wants to cancel the cs reject notification automatically
+     * when the voice registration state changes.
+     * If true, the notification will be automatically removed
+     *          when the voice registration state changes.
+     * If false, the notification will persist until the user dismisses it,
+     *           the SIM is removed, or the device is rebooted.
+     * @hide
+     */
+    public static final String KEY_AUTO_CANCEL_CS_REJECT_NOTIFICATION =
+            "carrier_auto_cancel_cs_notification";
+
+   /**
+    * An int array containing CDMA enhanced roaming indicator values for Home (non-roaming) network.
+    * The default values come from 3GPP2 C.R1001 table 8.1-1.
+    * Enhanced Roaming Indicator Number Assignments
+    *
+    * @hide
+    */
+    public static final String KEY_CDMA_ENHANCED_ROAMING_INDICATOR_FOR_HOME_NETWORK_INT_ARRAY =
+            "cdma_enhanced_roaming_indicator_for_home_network_int_array";
+
+    /**
+     * Determines whether wifi calling location privacy policy is shown.
+     *
+     * @hide
+     */
+    public static final String KEY_SHOW_WFC_LOCATION_PRIVACY_POLICY_BOOL =
+            "show_wfc_location_privacy_policy_bool";
+
+    /**
+     * This configuration allow the system UI to display different 5G icon for different 5G status.
+     *
+     * There are four 5G status:
+     * 1. connected_mmwave: device currently connected to 5G cell as the secondary cell and using
+     *    millimeter wave.
+     * 2. connected: device currently connected to 5G cell as the secondary cell but not using
+     *    millimeter wave.
+     * 3. not_restricted: device camped on a network that has 5G capability(not necessary to connect
+     *    a 5G cell as a secondary cell) and the use of 5G is not restricted.
+     * 4. restricted: device camped on a network that has 5G capability(not necessary to connect a
+     *    5G cell as a secondary cell) but the use of 5G is restricted.
+     *
+     * The configured string contains multiple key-value pairs separated by comma. For each pair,
+     * the key and value is separated by a colon. The key is corresponded to a 5G status above and
+     * the value is the icon name. Use "None" as the icon name if no icon should be shown in a
+     * specific 5G status.
+     *
+     * Here is an example of the configuration:
+     * "connected_mmwave:5GPlus,connected:5G,not_restricted:None,restricted:None"
+     *
+     * @hide
+     */
+    public static final String KEY_5G_ICON_CONFIGURATION_STRING =
+            "5g_icon_configuration_string";
+
     /** The default value for every variable. */
     private final static PersistableBundle sDefaults;
 
@@ -2465,7 +2595,7 @@ public class CarrierConfigManager {
         sDefaults.putBoolean(KEY_CARRIER_FORCE_DISABLE_ETWS_CMAS_TEST_BOOL, false);
         sDefaults.putBoolean(KEY_CARRIER_VOLTE_PROVISIONING_REQUIRED_BOOL, false);
         sDefaults.putBoolean(KEY_CARRIER_UT_PROVISIONING_REQUIRED_BOOL, false);
-        sDefaults.putBoolean(KEY_CARRIER_SUPPORTS_SS_OVER_UT_BOOL, true);
+        sDefaults.putBoolean(KEY_CARRIER_SUPPORTS_SS_OVER_UT_BOOL, false);
         sDefaults.putBoolean(KEY_CARRIER_VOLTE_OVERRIDE_WFC_PROVISIONING_BOOL, false);
         sDefaults.putBoolean(KEY_CARRIER_VOLTE_TTY_SUPPORTED_BOOL, true);
         sDefaults.putBoolean(KEY_CARRIER_ALLOW_TURNOFF_IMS_BOOL, true);
@@ -2658,6 +2788,7 @@ public class CarrierConfigManager {
         sDefaults.putString(KEY_MMS_UA_PROF_URL_STRING, "");
         sDefaults.putString(KEY_MMS_USER_AGENT_STRING, "");
         sDefaults.putBoolean(KEY_ALLOW_NON_EMERGENCY_CALLS_IN_ECM_BOOL, true);
+        sDefaults.putInt(KEY_EMERGENCY_SMS_MODE_TIMER_MS_INT, 0);
         sDefaults.putBoolean(KEY_USE_RCS_PRESENCE_BOOL, false);
         sDefaults.putBoolean(KEY_FORCE_IMEI_BOOL, false);
         sDefaults.putInt(
@@ -2723,6 +2854,8 @@ public class CarrierConfigManager {
         sDefaults.putBoolean(KEY_NOTIFY_VT_HANDOVER_TO_WIFI_FAILURE_BOOL, false);
         sDefaults.putStringArray(KEY_FILTERED_CNAP_NAMES_STRING_ARRAY, null);
         sDefaults.putBoolean(KEY_EDITABLE_WFC_ROAMING_MODE_BOOL, false);
+        sDefaults.putBoolean(KEY_SHOW_BLOCKING_PAY_PHONE_OPTION_BOOL, false);
+        sDefaults.putBoolean(KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL, false);
         sDefaults.putBoolean(KEY_STK_DISABLE_LAUNCH_BROWSER_BOOL, false);
         sDefaults.putBoolean(KEY_PERSIST_LPP_MODE_BOOL, true);
         sDefaults.putStringArray(KEY_CARRIER_WIFI_STRING_ARRAY, null);
@@ -2749,6 +2882,7 @@ public class CarrierConfigManager {
         sDefaults.putStringArray(KEY_ROAMING_OPERATOR_STRING_ARRAY, null);
         sDefaults.putBoolean(KEY_SHOW_IMS_REGISTRATION_STATUS_BOOL, false);
         sDefaults.putBoolean(KEY_RTT_SUPPORTED_BOOL, false);
+        sDefaults.putBoolean(KEY_TTY_SUPPORTED_BOOL, true);
         sDefaults.putBoolean(KEY_DISABLE_CHARGE_INDICATION_BOOL, false);
         sDefaults.putBoolean(KEY_SUPPORT_NO_REPLY_TIMER_FOR_CFNRY_BOOL, true);
         sDefaults.putStringArray(KEY_FEATURE_ACCESS_CODES_STRING_ARRAY, null);
@@ -2803,6 +2937,17 @@ public class CarrierConfigManager {
         sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_ENTRY_OR_EXIT_HYSTERESIS_TIME_LONG, 10000);
         /* Default value is 10 seconds. */
         sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_DATA_SWITCH_HYSTERESIS_TIME_LONG, 10000);
+        sDefaults.putIntArray(KEY_CDMA_ENHANCED_ROAMING_INDICATOR_FOR_HOME_NETWORK_INT_ARRAY,
+                new int[] {
+                        1 /* Roaming Indicator Off */
+                });
+        sDefaults.putStringArray(KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY, new String[0]);
+        sDefaults.putBoolean(KEY_SHOW_WFC_LOCATION_PRIVACY_POLICY_BOOL, true);
+        sDefaults.putString(KEY_5G_ICON_CONFIGURATION_STRING,
+                "connected_mmwave:None,connected:5G,not_restricted:None,restricted:None");
+        sDefaults.putBoolean(KEY_AUTO_CANCEL_CS_REJECT_NOTIFICATION, false);
+        sDefaults.putBoolean(KEY_ALWAYS_SHOW_PRIMARY_SIGNAL_BAR_IN_OPPORTUNISTIC_NETWORK_BOOLEAN,
+                false);
     }
 
     /**

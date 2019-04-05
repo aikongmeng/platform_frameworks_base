@@ -81,14 +81,14 @@ import android.net.ConnectivityThread;
 import android.net.EthernetManager;
 import android.net.IConnectivityManager;
 import android.net.IEthernetManager;
-import android.net.IIpMemoryStore;
 import android.net.IIpSecService;
 import android.net.INetworkPolicyManager;
-import android.net.IpMemoryStore;
+import android.net.ITestNetworkManager;
 import android.net.IpSecManager;
 import android.net.NetworkPolicyManager;
 import android.net.NetworkScoreManager;
 import android.net.NetworkWatchlistManager;
+import android.net.TestNetworkManager;
 import android.net.lowpan.ILowpanManager;
 import android.net.lowpan.LowpanManager;
 import android.net.nsd.INsdManager;
@@ -126,6 +126,7 @@ import android.os.IUserManager;
 import android.os.IncidentManager;
 import android.os.PowerManager;
 import android.os.RecoverySystem;
+import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
 import android.os.SystemUpdateManager;
@@ -295,17 +296,6 @@ final class SystemServiceRegistry {
             }
         });
 
-        registerService(Context.IP_MEMORY_STORE_SERVICE, IpMemoryStore.class,
-                new CachedServiceFetcher<IpMemoryStore>() {
-                    @Override
-                    public IpMemoryStore createService(final ContextImpl ctx)
-                            throws ServiceNotFoundException {
-                        IBinder b = ServiceManager.getServiceOrThrow(
-                                Context.IP_MEMORY_STORE_SERVICE);
-                        IIpMemoryStore service = IIpMemoryStore.Stub.asInterface(b);
-                        return new IpMemoryStore(ctx, service);
-                    }});
-
         registerService(Context.IPSEC_SERVICE, IpSecManager.class,
                 new CachedServiceFetcher<IpSecManager>() {
             @Override
@@ -314,6 +304,29 @@ final class SystemServiceRegistry {
                 IIpSecService service = IIpSecService.Stub.asInterface(b);
                 return new IpSecManager(ctx, service);
             }});
+
+        registerService(
+                Context.TEST_NETWORK_SERVICE,
+                TestNetworkManager.class,
+                new StaticApplicationContextServiceFetcher<TestNetworkManager>() {
+                    @Override
+                    public TestNetworkManager createService(Context context)
+                            throws ServiceNotFoundException {
+                        IBinder csBinder =
+                                ServiceManager.getServiceOrThrow(Context.CONNECTIVITY_SERVICE);
+                        IConnectivityManager csMgr =
+                                IConnectivityManager.Stub.asInterface(csBinder);
+
+                        final IBinder tnBinder;
+                        try {
+                            tnBinder = csMgr.startOrGetTestNetworkService();
+                        } catch (RemoteException e) {
+                            throw new ServiceNotFoundException(Context.TEST_NETWORK_SERVICE);
+                        }
+                        ITestNetworkManager tnMgr = ITestNetworkManager.Stub.asInterface(tnBinder);
+                        return new TestNetworkManager(context, tnMgr);
+                    }
+                });
 
         registerService(Context.COUNTRY_DETECTOR, CountryDetector.class,
                 new StaticServiceFetcher<CountryDetector>() {

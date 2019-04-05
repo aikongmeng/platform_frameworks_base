@@ -292,14 +292,19 @@ public class PhoneStateListener {
     public static final int LISTEN_PHONE_CAPABILITY_CHANGE                 = 0x00200000;
 
     /**
-     *  Listen for changes to preferred data subId.
-     *  See {@link SubscriptionManager#setPreferredDataSubId(int)}
-     *  for more details.
+     *  Listen for changes to active data subId. Active data subscription is
+     *  the current subscription used to setup Cellular Internet data. For example,
+     *  it could be the current active opportunistic subscription in use, or the
+     *  subscription user selected as default data subscription in DSDS mode.
      *
-     *  @see #onPreferredDataSubIdChanged
-     *  @hide
+     *  Requires Permission: No permission is required to listen, but notification requires
+     *  {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE} or the calling
+     *  app has carrier privileges (see {@link TelephonyManager#hasCarrierPrivileges})
+     *  on any active subscription.
+     *
+     *  @see #onActiveDataSubscriptionIdChanged
      */
-    public static final int LISTEN_PREFERRED_DATA_SUBID_CHANGE              = 0x00400000;
+    public static final int LISTEN_ACTIVE_DATA_SUBSCRIPTION_ID_CHANGE = 0x00400000;
 
     /**
      *  Listen for changes to the radio power state.
@@ -704,14 +709,13 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when preferred data subId changes. Requires
-     * the READ_PRIVILEGED_PHONE_STATE permission.
-     * @param subId the new preferred data subId. If it's INVALID_SUBSCRIPTION_ID,
-     *              it means it's unset and defaultDataSub is used to determine which
-     *              modem is preferred.
-     * @hide
+     * Callback invoked when active data subId changes. Requires
+     * the READ_PHONE_STATE permission.
+     * @param subId current subscription used to setup Cellular Internet data.
+     *              For example, it could be the current active opportunistic subscription in use,
+     *              or the subscription user selected as default data subscription in DSDS mode.
      */
-    public void onPreferredDataSubIdChanged(int subId) {
+    public void onActiveDataSubscriptionIdChanged(int subId) {
         // default implementation empty
     }
 
@@ -995,12 +999,12 @@ public class PhoneStateListener {
                     () -> mExecutor.execute(() -> psl.onCallAttributesChanged(callAttributes)));
         }
 
-        public void onPreferredDataSubIdChanged(int subId) {
+        public void onActiveDataSubIdChanged(int subId) {
             PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
             if (psl == null) return;
 
             Binder.withCleanCallingIdentity(
-                    () -> mExecutor.execute(() -> psl.onPreferredDataSubIdChanged(subId)));
+                    () -> mExecutor.execute(() -> psl.onActiveDataSubscriptionIdChanged(subId)));
         }
 
         public void onImsCallDisconnectCauseChanged(ImsReasonInfo disconnectCause) {
